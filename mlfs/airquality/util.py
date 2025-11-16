@@ -287,14 +287,79 @@ def check_file_path(file_path):
     else:
         print(f"File successfully found at the path: {file_path}")
 
+# def backfill_predictions_for_monitoring(weather_fg, air_quality_df, monitor_fg, model):
+#     features_df = weather_fg.read()
+#     features_df = features_df.sort_values(by=['date'], ascending=True)
+#     features_df = features_df.tail(10)
+
+
+#     features_df['predicted_pm25'] = model.predict(features_df[['temperature_2m_mean', 'precipitation_sum', 'wind_speed_10m_max', 'wind_direction_10m_dominant']])
+#     df = pd.merge(features_df, air_quality_df[['date','pm25','street','country', 'pm25_lag_1d', 'pm25_lag_2d', 'pm25_lag_3d']], on="date")
+#     df['days_before_forecast_day'] = 1
+
+#     feature_cols = [
+#         "pm25_lag_1d",
+#         "pm25_lag_2d",
+#         "pm25_lag_3d",
+#         "temperature_2m_mean",
+#         "precipitation_sum",
+#         "wind_speed_10m_max",
+#         "wind_direction_10m_dominant",
+#     ]
+
+#     X = df[feature_cols].apply(pd.to_numeric, errors="coerce").astype("float64")
+
+#     hindcast_df = df
+#     df = df.drop('pm25', axis=1)
+#     monitor_fg.insert(df, write_options={"wait_for_job": True})
+#     return hindcast_df
+
+# C-grade 
 def backfill_predictions_for_monitoring(weather_fg, air_quality_df, monitor_fg, model):
+    import pandas as pd
+
     features_df = weather_fg.read()
     features_df = features_df.sort_values(by=['date'], ascending=True)
     features_df = features_df.tail(10)
-    features_df['predicted_pm25'] = model.predict(features_df[['temperature_2m_mean', 'precipitation_sum', 'wind_speed_10m_max', 'wind_direction_10m_dominant']])
-    df = pd.merge(features_df, air_quality_df[['date','pm25','street','country']], on="date")
-    df['days_before_forecast_day'] = 1
+
+    lags_df = air_quality_df[["date", "pm25_lag_1d", "pm25_lag_2d", "pm25_lag_3d"]]
+    features_df = pd.merge(features_df, lags_df, on="date")
+
+    feature_cols = [
+        "pm25_lag_1d",
+        "pm25_lag_2d",
+        "pm25_lag_3d",
+        "temperature_2m_mean",
+        "precipitation_sum",
+        "wind_speed_10m_max",
+        "wind_direction_10m_dominant",
+    ]
+
+    X = features_df[feature_cols].apply(pd.to_numeric, errors="coerce").astype("float64")
+
+    features_df["predicted_pm25"] = model.predict(X)
+
+    df = pd.merge(
+        features_df,
+        air_quality_df[["date", "pm25", "street", "country"]],
+        on="date",
+    )
+
+    df["days_before_forecast_day"] = 1
+
     hindcast_df = df
-    df = df.drop('pm25', axis=1)
+    df = df.drop("pm25", axis=1)
+
+    double_cols = [
+    "temperature_2m_mean",
+    "precipitation_sum",
+    "wind_speed_10m_max",
+    "wind_direction_10m_dominant",
+    "predicted_pm25",
+    ]
+    
+    df[double_cols] = df[double_cols].astype("float64")
+
     monitor_fg.insert(df, write_options={"wait_for_job": True})
+
     return hindcast_df
