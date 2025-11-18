@@ -314,18 +314,33 @@ def check_file_path(file_path):
 #     monitor_fg.insert(df, write_options={"wait_for_job": True})
 #     return hindcast_df
 
-# C-grade 
+# C-grade and A-grade function versions below
 def backfill_predictions_for_monitoring(weather_fg, air_quality_df, monitor_fg, model):
-    import pandas as pd
+    city = air_quality_df["city"].iloc[0]
 
-    features_df = weather_fg.read()
-    features_df = features_df.sort_values(by=['date'], ascending=True)
-    features_df = features_df.tail(10)
+    weather_df = weather_fg.read()
+    weather_df = weather_df[weather_df["city"] == city]
+    weather_df = weather_df.sort_values(by=["date"], ascending=True).tail(10)
 
-    lags_df = air_quality_df[["date", "pm25_lag_1d", "pm25_lag_2d", "pm25_lag_3d"]]
-    features_df = pd.merge(features_df, lags_df, on="date")
+    aq = air_quality_df.sort_values(["station_id", "date"])
+    latest_per_station = aq.groupby("station_id").tail(1)
+
+    station_ids = latest_per_station["station_id"].unique()
+    features_df = weather_df.assign(key=1).merge(
+        pd.DataFrame({"station_id": station_ids, "key": [1] * len(station_ids)}),
+        on="key",
+    ).drop(columns=["key"])
+
+    features_df = features_df.merge(
+        latest_per_station[
+            ["station_id", "pm25_lag_1d", "pm25_lag_2d", "pm25_lag_3d"]
+        ],
+        on="station_id",
+        how="left",
+    )
 
     feature_cols = [
+        "station_id",
         "pm25_lag_1d",
         "pm25_lag_2d",
         "pm25_lag_3d",
@@ -341,24 +356,33 @@ def backfill_predictions_for_monitoring(weather_fg, air_quality_df, monitor_fg, 
 
     df = pd.merge(
         features_df,
-        air_quality_df[["date", "pm25", "street", "country"]],
-        on="date",
+        aq[["date", "station_id", "pm25", "street", "country"]],
+        on=["date", "station_id"],
+        how="left",
     )
+
+    if "street" in df.columns:
+        df["street"] = df["street"].astype("string")
+        df["street"] = df["street"].fillna(pd.NA)
 
     df["days_before_forecast_day"] = 1
 
-    hindcast_df = df
+    hindcast_df = df.copy()
     df = df.drop("pm25", axis=1)
 
     double_cols = [
-    "temperature_2m_mean",
-    "precipitation_sum",
-    "wind_speed_10m_max",
-    "wind_direction_10m_dominant",
-    "predicted_pm25",
+        "temperature_2m_mean",
+        "precipitation_sum",
+        "wind_speed_10m_max",
+        "wind_direction_10m_dominant",
+        "predicted_pm25",
+        "pm25_lag_1d",
+        "pm25_lag_2d",
+        "pm25_lag_3d",
+        "station_id",
     ]
-    
-    df[double_cols] = df[double_cols].astype("float64")
+
+    df[double_cols] = df[double_cols].apply(pd.to_numeric, errors="coerce").astype("float64")
 
     monitor_fg.insert(df, write_options={"wait_for_job": True})
 
