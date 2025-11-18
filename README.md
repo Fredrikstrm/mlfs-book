@@ -1,49 +1,98 @@
 # mlfs-book
 O'Reilly book - Building Machine Learning Systems with a feature store: batch, real-time, and LLMs
 
+Fredrik Ström - frest@kth.se
+Group: Fred
 
-## ML System Examples
+The project implements a complete ML pipeline:
 
+1. Backfill Feature Pipeline (Notebook 1)
+	•	Downloads >1 year of historical weather data from Open-Meteo.
+	•	Loads historical PM2.5 data (CSV) from AQICN.
+	•	Computes lagged PM2.5 features for each sensor:
+	•	pm25_lag_1d
+	•	pm25_lag_2d
+	•	pm25_lag_3d
+	•	Registers two Feature Groups in Hopsworks:
+	•	weather
+	•	air_quality_munich
 
-[Dashboards for Example ML Systems](https://featurestorebook.github.io/mlfs-book/)
+---
 
+2. Daily Feature Pipeline (Notebook 2)
 
+Runs once per day via GitHub Actions or Modal:
+	•	Fetches yesterday’s air-quality (PM2.5) for all Munich sensors
+	•	Fetches yesterday’s weather
+	•	Fetches 7-day weather forecast
+	•	Computes lagged PM2.5 using the most recent 3 data points per station
+	•	Inserts updated data into the Feature Store
 
+---
 
-# Run Air Quality Tutorial
+3. Training Pipeline (Notebook 2)
+	•	Creates a Feature View combining:
+	•	Weather features
+	•	PM2.5 + lagged features
+	•	station_id
+	•	Splits training/validation by date (no shuffle)
+	•	Trains an XGBoost Regressor
+	•	Registers the model in Hopsworks
 
-See [tutorial instructions here](https://docs.google.com/document/d/1YXfM1_rpo1-jM-lYyb1HpbV9EJPN6i1u6h2rhdPduNE/edit?usp=sharing)
-    # Create a conda or virtual environment for your project
-    conda create -n book 
-    conda activate book
+---
 
-    # Install 'uv' and 'invoke'
-    pip install invoke dotenv
+4. Batch Inference + Dashboard (Notebook 4 – Grade E)
+	•	Loads model and upcoming weather forecast
+	•	Performs autoregressive prediction for next 7 days:
+	•	Uses updated lagged PM2.5 for each forecast step
+	•	Writes predictions to a monitoring Feature Group
+	•	Creates:
+	•	Forecast plot (next 7 days)
+	•	Hindcast plot (prediction vs reality)
 
-    # 'invoke install' installs python dependencies using uv and requirements.txt
-    invoke install
+---
 
+5. Prediction Monitoring (Grade E)
+	•	Hindcast aligns:
+	•	Actual PM2.5
+	•	Predicted PM2.5
+	•	Allows performance monitoring over time
 
-## PyInvoke
+--- 
 
-    invoke aq-backfill
-    invoke aq-features
-    invoke aq-train
-    invoke aq-inference
-    invoke aq-clean
+The model was extended to include:
+	•	pm25_lag_1d
+	•	pm25_lag_2d
+	•	pm25_lag_3d
 
+These significantly improved stability and predictive quality.
 
+However, some sensors show extreme PM2.5 spikes (outliers), which increased MSE, particularly when training on multiple sensors
 
-## Feldera
+---
 
+I decided to do a multi-sensor support for Munich. I queried:
 
-pip install feldera ipython-secrets
-sudo apt-get install python3-secretstorage
-sudo apt-get install gnome-keyring 
+`https://api.waqi.info/search/?keyword=munich&token=...` 
 
-mkdir -p /tmp/c.app.hopsworks.ai
-ln -s  /tmp/c.app.hopsworks.ai ~/hopsworks
-docker run -p 8080:8080 \
-  -v ~/hopsworks:/tmp/c.app.hopsworks.ai \
-  --tty --rm -it ghcr.io/feldera/pipeline-manager:latest
+to extract all Munich station UIDs. Each daily run pulls PM2.5 for every station. 
+Weather is retrieved once per day and cross-joined to each sensor.
+
+Each station has independent:
+	•	pm25_lag_1d
+	•	pm25_lag_2d
+	•	pm25_lag_3d
+
+To support multiple sensors, the following features were added: 
+
+	•	station_id (logged as float64 to match Hopsworks)
+	•	per-sensor lagged PM2.5
+
+---
+
+Per-sensor forecast and hindcast dashboards
+
+Plots are saved for:
+	•	all sensors combined
+	•	each individual sensor
 
