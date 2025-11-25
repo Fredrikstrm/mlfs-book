@@ -2,7 +2,7 @@ name: air-quality-daily
 
 on:
   workflow_dispatch:
-    schedule:
+  schedule:
     - cron: '11 6 * * *'
 
 jobs:
@@ -42,6 +42,7 @@ jobs:
           commit_options: '--no-verify --signoff'
 
           file_pattern: 'docs/air-quality/assets/img/* docs/_includes/*'
+          token: ${{ secrets.GH_PAT }}
 
           repository: .
 
