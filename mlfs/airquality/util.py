@@ -384,6 +384,13 @@ def backfill_predictions_for_monitoring(weather_fg, air_quality_df, monitor_fg, 
 
     df[double_cols] = df[double_cols].apply(pd.to_numeric, errors="coerce").astype("float64")
 
+    string_cols = ["country", "city", "street"]
+
+    for col in string_cols:
+        if col in df.columns:
+            # treat missing as unknown (or '' if you prefer)
+            df[col] = df[col].astype("string").fillna("unknown")
+
     monitor_fg.insert(df, write_options={"wait_for_job": True})
 
     return hindcast_df
